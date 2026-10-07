@@ -52,6 +52,10 @@ rows         { [workspaceId]: { [employeeId]: row[] } }
                payment  { id, type:"payment", date, amount, from, to, method, comment, shared[] }
                leave    { id, type:"leave", date, kind:"leave"|"holiday", note }
                note     { id, type:"note", date, text, tone }
+groups       { [workspaceId]: { [employeeId]: group[] } }   (optional; absent in older files)
+               { id, from, to, label, add[], remove[], collapsed }
+               Pay group: the days from..to plus the payments whose from/to lie inside it,
+               plus payment ids in add[], minus payment ids in remove[]. Report only; no balance depends on it.
 ui           view preferences (safe to ignore)
 ```
 

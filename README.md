@@ -36,6 +36,7 @@ Output lands in `dist/`. Build on the OS you're targeting (Windows installers ne
 - **Filters** (All · Unpaid · Needs attention) and week subtotals sit on their own row under the table buttons.
 - **Expand** the table: **Large view** hides the summary cards and clock (Ctrl+Shift+L), and **Full screen** also hides the sidebar and fills the screen (Ctrl+Shift+F). A compact summary line stays visible, and Esc goes back.
 - **Record payment** adds a payment row for a lump sum over a date range, e.g. "Paid Rs 460 for 01 Sep – 07 Sep 2026". It's matched to the oldest unpaid days in that range, and those days get a teal tick.
+- **Pay groups** wrap a stretch of days (a few days, 10 days, a week and a half) with the payments made for them, e.g. 08 Sep – 17 Sep paid in two instalments. The group shows its days, then its payment rows, then a total row: total hours, amount, paid and pending balance, written out as "Paid $300 + $300 = $600 · $94 Pending balance". Payments whose covered dates fall inside the group join it automatically; tick or untick others in the group dialog. Click the arrow to fold a group down to its totals. Create one with the **Pay group** button or the ⋯ menu on a day or payment. Grouping never changes any balance.
 - **Separator rows** for comments between weeks, in four colours.
 - **Brought forward / Carried forward** rows on every period. Next week's brought-forward is always this week's carried-forward.
 - **Drag rows** by the ⋮⋮ handle, use the ⋯ menu (move, duplicate, insert, delete), or **Sort** by date. Totals never depend on row order.
@@ -56,6 +57,8 @@ Output lands in `dist/`. Build on the OS you're targeting (Windows installers ne
 | Day balance | Amount − Paid on the day − Share of payment rows |
 | Running balance | Brought forward + Σ(Amount − Paid on the day) − Σ(Payment rows) |
 | Carried forward | Brought forward + Earned this period − Paid this period |
+| Pay group paid | Paid on the day (days in the group) + Σ(Payments in the group) |
+| Pay group pending | Total amount of the group's days − Pay group paid |
 
 Click any calculated figure in the table to see how it was worked out.
 

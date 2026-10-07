@@ -77,6 +77,7 @@
     fwd: '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7v4a4 4 0 0 0 4 4h12M16 11l4 4-4 4"/></svg>',
     x: '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>',
     leave: '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>',
+    group: '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h3M16 3h3a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-3M8 9h8M8 15h5"/></svg>',
     chev: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 10l4 4 4-4"/></svg>',  };
 
   // =====================================================================
@@ -93,6 +94,7 @@
    *   workspaces[]  { id, name, details, createdAt }
    *   employees[]   { id, name, createdAt, workspaces: { [wsId]: { role, hourlyRate, openingBalance, openingNote } } }
    *   rows          { [wsId]: { [empId]: row[] } }   — each employee has a separate ledger per workspace
+   *   groups        { [wsId]: { [empId]: group[] } } — pay groups: { id, from, to, label, add[], remove[], collapsed }
    */
   let data = null;
   let dataPath = '';
@@ -101,7 +103,7 @@
   const newWorkspace = (name, details) => ({ id: uid('w'), name: name || 'My workspace', details: details || '', createdAt: new Date().toISOString() });
   function blankData() {
     const ws = newWorkspace('My workspace');
-    return { version: 2, settings: { ...DEFAULT_SETTINGS }, workspaces: [ws], employees: [], rows: { [ws.id]: {} }, ui: { periodMode: 'week', anchor: todayISO(), subtotals: true, activeEmployeeId: null, activeWorkspaceId: ws.id, custom: { start: '', end: '' } } };
+    return { version: 2, settings: { ...DEFAULT_SETTINGS }, workspaces: [ws], employees: [], rows: { [ws.id]: {} }, groups: { [ws.id]: {} }, ui: { periodMode: 'week', anchor: todayISO(), subtotals: true, activeEmployeeId: null, activeWorkspaceId: ws.id, custom: { start: '', end: '' } } };
   }
   function normalize(d) {
     const b = blankData();
@@ -137,6 +139,14 @@
       }
     }
     for (const w of Object.values(d.rows)) for (const k of Object.keys(w)) w[k] = (Array.isArray(w[k]) ? w[k] : []).filter(r => r && r.id && ROW_TYPES.includes(r.type));
+    d.groups = d.groups && typeof d.groups === 'object' ? d.groups : {};
+    for (const k of Object.keys(d.groups)) if (!wsIds.has(k) || !d.groups[k] || typeof d.groups[k] !== 'object') delete d.groups[k];
+    for (const w of d.workspaces) d.groups[w.id] = d.groups[w.id] || {};
+    const isISO = v => /^\d{4}-\d{2}-\d{2}$/.test(v || '');
+    for (const w of Object.values(d.groups)) for (const k of Object.keys(w)) {
+      w[k] = (Array.isArray(w[k]) ? w[k] : []).filter(g => g && g.id && isISO(g.from) && isISO(g.to) && g.from <= g.to);
+      for (const g of w[k]) { g.add = Array.isArray(g.add) ? g.add : []; g.remove = Array.isArray(g.remove) ? g.remove : []; g.label = g.label || ''; }
+    }
     if (!wsIds.has(d.ui.activeWorkspaceId)) d.ui.activeWorkspaceId = d.workspaces[0].id;
     return d;
   }
@@ -186,8 +196,8 @@
 
   // ---------- undo / redo ----------
   const undoStack = [], redoStack = [];
-  const snapshot = () => JSON.stringify({ settings: data.settings, workspaces: data.workspaces, employees: data.employees, rows: data.rows });
-  function restoreSnap(s) { const o = JSON.parse(s); data.settings = o.settings; data.workspaces = o.workspaces; data.employees = o.employees; data.rows = o.rows; nfCache = {}; }
+  const snapshot = () => JSON.stringify({ settings: data.settings, workspaces: data.workspaces, employees: data.employees, rows: data.rows, groups: data.groups });
+  function restoreSnap(s) { const o = JSON.parse(s); data.settings = o.settings; data.workspaces = o.workspaces; data.employees = o.employees; data.rows = o.rows; data.groups = o.groups || {}; nfCache = {}; }
   /** Every change to records goes through here: snapshot → change → save → render */
   function mutate(fn, opts) {
     const before = snapshot();
@@ -274,6 +284,12 @@
   function rowsOf(id, wsId) {
     wsId = wsId || activeWs().id;
     const w = data.rows[wsId] || (data.rows[wsId] = {});
+    return w[id] || (w[id] = []);
+  }
+  /** Pay groups of one employee in one workspace. */
+  function groupsOf(id, wsId) {
+    wsId = wsId || activeWs().id;
+    const w = data.groups[wsId] || (data.groups[wsId] = {});
     return w[id] || (w[id] = []);
   }
   const range = () => C.periodRange(data.ui.periodMode, data.ui.anchor, S().weekStart, data.ui.custom);
@@ -447,6 +463,7 @@
         <button class="btn primary" data-action="add-week" title="Add a row for each work day of a week">${I.cal} Add week</button>
       </div>
       <button class="btn" data-action="add-payment" title="Record a payment (Ctrl+Shift+P)">${I.cash} Record payment</button>
+      <button class="btn" data-action="add-group" title="Wrap days and their payments in a pay group with totals and the pending balance">${I.group} Pay group</button>
       <button class="btn" data-action="add-leave" title="Mark a date or date range as leave or holiday (Ctrl+L)">${I.leave} Leave / Holiday</button>
       <button class="btn" data-action="add-note" title="Insert a separator row with a comment">${I.note} Separator</button>
       <span class="spacer"></span>
@@ -473,7 +490,7 @@
 
     const printHead = `<div class="print-head"><div><h1>${esc(emp.name)} — Attendance &amp; payments</h1><div>${esc(activeWs().name)} · ${esc(emp.role || '')} · ${money(emp.hourlyRate)}/h</div></div><div>${esc($('#period-label').textContent || fmtRange(r.start, r.end))} · printed ${fmtDate(todayISO())}</div></div>`;
 
-    $('#view').innerHTML = printHead + kpis + clock + toolbar + renderTable(emp, V, r) + legend();
+    $('#view').innerHTML = printHead + kpis + clock + toolbar + renderTable(emp, V, r, L) + legend();
   }
 
   // ---------- table view: normal / large (no summary cards) / full screen (no sidebar either) ----------
@@ -603,7 +620,7 @@
   }
 
   const COLS = 13;
-  function renderTable(emp, V, r) {
+  function renderTable(emp, V, r, L) {
     const showRate = S().showRate;
     const head = `<thead><tr>
       <th></th>
@@ -633,22 +650,29 @@
 
     const body = [];
     body.push(carryRow('in', V, r));
-    const subtotals = data.ui.subtotals && ui.filter === 'all' && data.ui.periodMode !== 'week';
-    let grp = null;
-    const flush = () => { if (grp && grp.n) body.push(subtotalRow(grp)); };
-    for (let i = 0; i < rows.length; i++) {
-      const x = rows[i];
-      if (subtotals) {
-        const wk = C.weekStartOf(x.row.date, S().weekStart);
-        if (!grp || grp.key !== wk) { flush(); grp = { key: wk, n: 0, minutes: 0, earned: 0, paid: 0, running: 0 }; }
-        grp.n++;
-        if (x.row.type === 'day') { grp.minutes += x.c.minutes; grp.earned += x.c.amount; grp.paid += x.c.directPaid; }
-        if (x.row.type === 'payment') grp.paid += x.c.amount;
-        grp.running = x.running;
+    if (ui.filter !== 'all') for (const x of rows) body.push(rowHTML(x, emp));
+    else {
+      // pay groups become blocks; week subtotals cover the rows outside them
+      const subtotals = data.ui.subtotals && data.ui.periodMode !== 'week';
+      let grp = null;
+      const flush = () => { if (grp && grp.n) body.push(subtotalRow(grp)); grp = null; };
+      for (const e of tableLayout(emp, V, L).entries) {
+        if (e.kind === 'head') { if (subtotals) flush(); body.push(groupHeadRow(e, r)); continue; }
+        if (e.kind === 'total') { body.push(groupTotalRows(e)); continue; }
+        const x = e.x;
+        if (subtotals && !e.gid) {
+          const wk = C.weekStartOf(x.row.date, S().weekStart);
+          if (!grp || grp.key !== wk) { flush(); grp = { key: wk, n: 0, minutes: 0, earned: 0, paid: 0, running: 0 }; }
+          grp.n++;
+          if (x.row.type === 'day') { grp.minutes += x.c.minutes; grp.earned += x.c.amount; grp.paid += x.c.directPaid; }
+          if (x.row.type === 'payment') grp.paid += x.c.amount;
+          grp.running = x.running;
+        }
+        if (e.hidden) continue;
+        body.push(e.gid ? rowHTML(x, emp).replace(/^<tr class="/, '<tr class="in-grp ') : rowHTML(x, emp));
       }
-      body.push(rowHTML(x, emp));
+      if (subtotals) flush();
     }
-    if (subtotals) flush();
     if (!rows.length) body.push(`<tr><td colspan="${COLS}"><div class="empty-table" style="padding:24px">No rows match this filter.</div></td></tr>`);
     body.push(carryRow('out', V, r));
 
@@ -679,6 +703,78 @@
     return `<tr class="subtotal"><td></td><td colspan="4"><span class="lbl">Week of ${fmtDate(g.key, false)} – ${fmtDate(C.addDays(g.key, 6))}</span></td>
       <td class="r num">${hours(g.minutes)}</td><td ${showRate ? '' : 'hidden'}></td><td class="r num">${money(g.earned)}</td><td class="r num">${money(g.paid)}</td><td></td>
       <td class="r num">${money(g.earned - g.paid)}</td><td class="r num">${money(g.running)}</td><td></td></tr>`;
+  }
+
+  // ---------- pay groups ----------
+  /** An employee's pay groups with their payments and whole-range totals. */
+  function groupInfo(emp, L) {
+    const groups = groupsOf(emp.id, emp.wsId);
+    const assigned = C.assignPayments(rowsOf(emp.id, emp.wsId), groups);
+    const sums = new Map(groups.map(g => [g.id, C.groupSummary(L, g, assigned)]));
+    const of = row => row.type === 'payment' ? assigned.get(row.id) || null
+      : (groups.find(g => row.date && row.date >= g.from && row.date <= g.to) || {}).id || null;
+    return { groups, assigned, sums, of, byId: id => groups.find(g => g.id === id) };
+  }
+
+  /**
+   * Display order of the period's rows. Each pay group is one block (its days, then its payments
+   * in date order) placed where its first row is, and the running balance follows this order.
+   * Entries: { kind: 'row', x, gid, hidden } | { kind: 'head' | 'total', g, s, running }
+   */
+  function tableLayout(emp, V, L) {
+    const G = groupInfo(emp, L);
+    const blocks = new Map();
+    for (const x of V.rows) {
+      const gid = G.groups.length ? G.of(x.row) : null; if (!gid) continue;
+      let b = blocks.get(gid); if (!b) blocks.set(gid, b = { rest: [], pays: [] });
+      (x.row.type === 'payment' ? b.pays : b.rest).push(x);
+    }
+    let running = V.carryIn;
+    const entries = [];
+    const push = (x, gid, hidden) => { running = C.roundMoney(running + x.c.contribution, dec()); entries.push({ kind: 'row', x: Object.assign({}, x, { running }), gid, hidden }); };
+    for (const x of V.rows) {
+      const gid = G.groups.length ? G.of(x.row) : null;
+      if (!gid) { push(x, null, false); continue; }
+      const b = blocks.get(gid);
+      if (x !== (b.rest[0] || b.pays[0])) continue;
+      const g = G.byId(gid), s = G.sums.get(gid);
+      entries.push({ kind: 'head', g, s });
+      const pays = b.pays.slice().sort((p, q) => (p.row.date < q.row.date ? -1 : p.row.date > q.row.date ? 1 : 0));
+      for (const m of b.rest.concat(pays)) push(m, gid, !!g.collapsed);
+      entries.push({ kind: 'total', g, s, running });
+    }
+    return { entries, G };
+  }
+
+  function groupHeadRow(e, r) {
+    const { g, s } = e;
+    const status = s.pending > 0 ? `<span class="pill amber">${money(s.pending)} pending</span>`
+      : s.pending < 0 ? `<span class="pill teal">${money(-s.pending)} paid in advance</span>`
+        : s.earned > 0 ? `<span class="pill teal">${I.check} Paid in full</span>` : '';
+    const partly = (r.start && s.from < r.start) || (r.end && s.to > r.end);
+    return `<tr class="grp-head ${g.collapsed ? 'closed' : ''}" data-gid="${g.id}"><td class="handle"><button class="icon-btn grp-tog" data-action="group-toggle" title="${g.collapsed ? 'Show the rows in this group' : 'Fold this group to its totals'}" aria-expanded="${!g.collapsed}">${I.chev}</button></td>
+      <td colspan="${S().showRate ? COLS - 1 : COLS - 2}"><div class="grp-line"><span class="pill grp">${I.group} Pay group</span><span class="grp-range">${esc(fmtRange(g.from, g.to))}</span>${g.label ? `<span class="grp-label">${esc(g.label)}</span>` : ''}
+        <span class="grp-meta">${s.days} day${s.days === 1 ? '' : 's'} · ${s.payments.length} payment${s.payments.length === 1 ? '' : 's'}${g.collapsed ? ' · folded' : ''}</span>${status}
+        ${partly ? '<span class="grp-meta" title="The group continues outside this period. Its totals always cover all of its dates.">· totals cover the whole group</span>' : ''}
+        <span class="spacer"></span><button class="range-btn" data-action="group-edit" title="Change the dates, label or payments of this group">${I.edit} Edit group</button></div></td></tr>`;
+  }
+
+  /** The group's total row, then the payment line: "Paid $300 + $300 = $600 · $94 Pending balance". */
+  function groupTotalRows(e) {
+    const { g, s, running } = e;
+    const showRate = S().showRate;
+    const parts = [];
+    if (s.paidOnDay > 0) parts.push(`<span class="gp"><b>${money(s.paidOnDay)}</b><small>paid on the day</small></span>`);
+    for (const p of s.payments) parts.push(`<span class="gp"><b>${money(p.amount)}</b><small>${fmtDate(p.date, false)}${p.method ? ' · ' + esc(p.method) : ''}</small></span>`);
+    const formula = !parts.length ? '<span class="gp"><small>No payments yet</small></span>'
+      : parts.join('<span class="op">+</span>') + (parts.length > 1 ? `<span class="op">=</span><span class="gp tot"><b>${money(s.paid)}</b></span>` : '');
+    const pend = s.pending > 0 ? `<span class="grp-pend owed"><b>${money(s.pending)}</b> Pending balance</span>`
+      : s.pending < 0 ? `<span class="grp-pend over"><b>${money(-s.pending)}</b> Paid in advance</span>`
+        : `<span class="grp-pend ok">${I.check} Paid in full</span>`;
+    return `<tr class="grp-total" data-gid="${g.id}"><td></td><td colspan="4"><span class="lbl">Group total · ${s.days} day${s.days === 1 ? '' : 's'}</span></td>
+      <td class="r num">${hours(s.minutes)}</td><td ${showRate ? '' : 'hidden'}></td><td class="r num">${money(s.earned)}</td><td class="r num">${money(s.paid)}</td><td></td>
+      <td class="r num" title="Pending balance: Amount − Paid">${money(s.pending)}</td><td class="r num">${money(running)}</td><td></td></tr>
+      <tr class="grp-settle" data-gid="${g.id}"><td></td><td colspan="${showRate ? COLS - 1 : COLS - 2}"><div class="grp-sum"><span class="k">Paid</span>${formula}<span class="spacer"></span>${pend}</div></td></tr>`;
   }
 
   function issueIcon(issues) {
@@ -1359,7 +1455,7 @@
               m.close();
               mutate(() => {
                 const p = person(emp.id);
-                delete p.workspaces[ws.id]; delete data.rows[ws.id][emp.id];
+                delete p.workspaces[ws.id]; delete data.rows[ws.id][emp.id]; if (data.groups[ws.id]) delete data.groups[ws.id][emp.id];
                 if (!Object.keys(p.workspaces).length) data.employees = data.employees.filter(x => x.id !== emp.id);
                 fixActive();
               });
@@ -1856,7 +1952,7 @@
               mutate(() => {
                 for (const p of data.employees) if (p.workspaces[ws.id]) { delete p.workspaces[ws.id]; p._drop = !Object.keys(p.workspaces).length; }
                 data.employees = data.employees.filter(p => { const d = p._drop; delete p._drop; return !d; });
-                delete data.rows[ws.id];
+                delete data.rows[ws.id]; delete data.groups[ws.id];
                 data.workspaces = data.workspaces.filter(x => x.id !== ws.id);
                 fixActive();
               });
@@ -2053,6 +2149,137 @@
     });
   }
 
+  // ---------- pay groups ----------
+  /**
+   * Create or edit a pay group: a date range whose days and payments are shown as one block with
+   * total hours, amount, paid and pending balance. preset { from, to, payment } fills a new group.
+   */
+  function groupModal(existing, preset) {
+    const emp = activeEmp(); if (!emp) return;
+    const rows = rowsOf(emp.id);
+    const groups = groupsOf(emp.id);
+    const L = ledgerOf(emp);
+    const others = groups.filter(g => !existing || g.id !== existing.id);
+    const inOther = d => others.some(o => d >= o.from && d <= o.to);
+    const takenBy = C.assignPayments(rows, others);
+    const pays = rows.filter(x => x.type === 'payment').slice().sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+    const fits = (p, from, to) => !!(p.from && p.to && from && to && p.from >= from && p.to <= to);
+
+    let g;
+    if (existing) g = existing;
+    else {
+      // default: from the first day not in a group, to the last date that the free payments after it cover
+      const p = preset || {};
+      const free = rows.filter(x => x.type === 'day' && x.date && !inOther(x.date)).map(x => x.date).sort();
+      const from = p.from || free[0] || range().start || todayISO();
+      const payTo = pays.filter(x => !takenBy.has(x.id) && x.from && x.to && x.from >= from).map(x => x.to).sort().pop();
+      const to = p.to || payTo || free.filter(d => d >= from).pop() || from;
+      g = { id: uid('g'), from, to: to < from ? from : to, label: '', add: [], remove: [], collapsed: false };
+    }
+    // hand-picked choices: id -> true (in) / false (out); everything else follows the dates
+    const picked = new Map();
+    for (const id of g.add || []) picked.set(id, true);
+    for (const id of g.remove || []) picked.set(id, false);
+    if (preset && preset.payment) picked.set(preset.payment, true);
+
+    modal({
+      title: existing ? 'Edit pay group' : 'Wrap days in a pay group',
+      sub: 'Shows a stretch of days with their payments as one block: total hours, amount, paid and the pending balance. Balances are not changed.',
+      wide: true,
+      body: `
+        <div class="row3">
+          <div class="field"><label>From</label><input name="from" type="date" value="${esc(g.from)}"></div>
+          <div class="field"><label>To</label><input name="to" type="date" value="${esc(g.to)}"></div>
+          <div class="field"><label>Label <span style="color:var(--muted);font-weight:400">(optional)</span></label><input name="label" value="${esc(g.label)}" placeholder="e.g. Paid in two instalments"></div>
+        </div>
+        <div class="field"><div class="label">Payments in this group</div>
+          <div class="hint">Payments that cover dates inside the group are ticked for you. Tick any other payment for these days, such as one recorded without dates.</div>
+          <div class="grp-pick" id="grp-pick"></div></div>
+        <div id="grp-preview"></div>`,
+      foot: `${existing ? '<button class="btn danger left" data-del title="Remove the group. Its days and payments are kept.">Ungroup</button>' : ''}<button class="btn" data-close>Cancel</button><button class="btn primary" data-ok>${I.group} ${existing ? 'Save group' : 'Create group'}</button>`,
+      onMount: (el, m) => {
+        const F = n => $(`[name=${n}]`, el);
+        const read = () => ({ from: F('from').value, to: F('to').value, label: F('label').value.trim() });
+        const isIn = (p, v) => picked.has(p.id) ? picked.get(p.id) : fits(p, v.from, v.to);
+        const draft = v => {
+          const add = [], remove = [];
+          for (const p of pays) {
+            if (takenBy.has(p.id)) continue;
+            const auto = fits(p, v.from, v.to), on = isIn(p, v);
+            if (on && !auto) add.push(p.id);
+            if (!on && auto) remove.push(p.id);
+          }
+          return { id: g.id, from: v.from, to: v.to, label: v.label, add, remove };
+        };
+        const problem = v => {
+          if (!/^\d{4}-\d{2}-\d{2}$/.test(v.from) || !/^\d{4}-\d{2}-\d{2}$/.test(v.to)) return 'Choose the first and last date of the group.';
+          if (v.from > v.to) return '"From" is after "To".';
+          const o = others.find(o => v.from <= o.to && v.to >= o.from);
+          if (o) return 'These dates overlap the pay group ' + fmtRange(o.from, o.to) + '. A day can be in one group only.';
+          return '';
+        };
+        const drawPick = () => {
+          const v = read();
+          $('#grp-pick', el).innerHTML = pays.length ? pays.map(p => {
+            const other = takenBy.get(p.id); const og = other && others.find(o => o.id === other);
+            const auto = fits(p, v.from, v.to);
+            return `<label class="${og ? 'off' : ''}"><input type="checkbox" data-pid="${p.id}" ${og ? 'disabled' : isIn(p, v) ? 'checked' : ''}>
+              <span class="d">${fmtDate(p.date)}</span><b class="num">${money(C.num(p.amount))}</b><span class="m">${esc(p.method || '')}</span>
+              <span class="c">${p.from || p.to ? 'covers ' + esc(fmtRange(p.from, p.to)) : 'no dates'}${og ? ' · in group ' + esc(fmtRange(og.from, og.to)) : auto ? ' · inside the group' : ''}</span></label>`;
+          }).join('') : '<div class="hint" style="padding:8px 10px">No payments recorded yet. Use Record payment, and payments for these dates join the group.</div>';
+        };
+        const update = () => {
+          const v = read(); const err = problem(v);
+          if (err) { $('#grp-preview', el).innerHTML = `<div class="callout red">${esc(err)}</div>`; return; }
+          const d = draft(v);
+          const s = C.groupSummary(L, d, C.assignPayments(rows, others.concat([d])));
+          const parts = (s.paidOnDay > 0 ? [money(s.paidOnDay) + ' on the day'] : []).concat(s.payments.map(p => money(p.amount)));
+          $('#grp-preview', el).innerHTML = `<div class="callout"><div class="kv">
+            <span class="k">Days worked</span><span class="v">${s.days}${s.leave + s.holidays ? ' <span style="color:var(--muted);font-weight:400">· ' + (s.leave + s.holidays) + ' off</span>' : ''}</span>
+            <span class="k">Total hours</span><span class="v">${C.formatHM(s.minutes)} <span style="color:var(--muted);font-weight:400">(${C.formatDecimalHours(s.minutes)} h)</span></span>
+            <span class="k">Total amount</span><span class="v">${money(s.earned)}</span>
+            <span class="k">Total paid</span><span class="v">${parts.length > 1 ? esc(parts.join(' + ')) + ' = ' : ''}${money(s.paid)}</span>
+            <span class="k tot">${s.pending < 0 ? 'Paid in advance' : 'Pending balance'}</span><span class="v tot">${money(Math.abs(s.pending))}</span></div></div>
+            ${s.earned > 0 && s.pending === 0 ? `<div class="callout green" style="margin-top:8px">${I.check} These days are paid in full.</div>` : ''}`;
+        };
+        ['from', 'to'].forEach(n => F(n).addEventListener('input', () => { drawPick(); update(); }));
+        $('#grp-pick', el).addEventListener('change', ev => { const c = ev.target.closest('[data-pid]'); if (!c) return; picked.set(c.dataset.pid, c.checked); update(); });
+        drawPick(); update();
+        const submit = () => {
+          const v = read(); const err = problem(v);
+          if (err) return toast(err, { error: true });
+          const d = draft(v);
+          mutate(() => {
+            if (existing) Object.assign(existing, { from: d.from, to: d.to, label: d.label, add: d.add, remove: d.remove });
+            else groups.push(Object.assign(g, d));
+            groups.sort((a, b) => (a.from < b.from ? -1 : a.from > b.from ? 1 : 0));
+          }, { render: false });
+          m.close();
+          const r = range();
+          if ((r.start && d.to < r.start) || (r.end && d.from > r.end)) data.ui.anchor = d.from;
+          render();
+          const tr = $(`tr.grp-head[data-gid="${CSS.escape(g.id)}"]`);
+          if (tr) tr.scrollIntoView({ block: 'nearest' });
+          toast(existing ? 'Pay group saved' : 'Pay group created for ' + fmtRange(d.from, d.to), { undo: true });
+        };
+        $('[data-ok]', el).addEventListener('click', submit);
+        el.addEventListener('keydown', ev => { if (ev.key === 'Enter' && ev.target.tagName === 'INPUT' && ev.target.type !== 'checkbox') submit(); });
+        if (existing) $('[data-del]', el).addEventListener('click', () => {
+          m.close();
+          mutate(() => { groups.splice(groups.indexOf(existing), 1); });
+          toast('Ungrouped ' + fmtRange(existing.from, existing.to) + '. Days and payments are kept', { undo: true });
+        });
+      },
+    });
+  }
+  function takeOutOfGroup(g, row) {
+    mutate(() => {
+      g.add = g.add.filter(id => id !== row.id);
+      if (row.from && row.to && row.from >= g.from && row.to <= g.to && !g.remove.includes(row.id)) g.remove.push(row.id);
+    });
+    toast('Payment taken out of the pay group', { undo: true });
+  }
+
   // ---------- settings ----------
   function settingsModal() {
     const s = S();
@@ -2159,7 +2386,7 @@
   // ---------- verify (self-review checkpoint) ----------
   function verifyModal() {
     const emp = activeEmp(); if (!emp) return;
-    const res = C.verify(rowsOf(emp.id), emp, { decimals: dec() });
+    const res = C.verify(rowsOf(emp.id), emp, { decimals: dec(), groups: groupsOf(emp.id) });
     const checks = res.checks.slice();
     // Period chain: this period's brought-forward must equal last period's carried-forward
     const r = range();
@@ -2213,6 +2440,9 @@
         <div class="section-t">Paid, balance and payments</div>
         <div class="formula"><b>Balance</b> (per day) = Amount − Paid on the day − Share of payment rows</div>
         <p>There are two ways to record pay: tick <b>Paid</b> on a day (or type a partial amount), or use <b>Record payment</b> for a lump sum covering a date range — for example "Paid ${esc(sym)} 460 for 01 Sep – 07 Sep". Payment rows are matched to the oldest unpaid days in their range, and those days get a teal tick. Anything left over is kept as credit.</p>
+        <div class="section-t">Pay groups</div>
+        <div class="formula"><b>Total paid</b> = Paid on the day + Σ(Payments in the group)<br><b>Pending balance</b> = Total amount − Total paid</div>
+        <p>When someone is paid for a stretch of days in instalments, use <b>Pay group</b> to wrap those days with their payments. The group shows its days, then its payments, then a total row with hours, amount, paid and pending balance, for example "Paid ${esc(sym)} 300 + ${esc(sym)} 300 = ${esc(sym)} 600 · ${esc(sym)} 94 Pending balance". Payments that cover dates inside the group join it automatically. Click the arrow to fold a group to its totals. Grouping never changes a balance.</p>
         <div class="section-t">Running balance &amp; carry-forward</div>
         <div class="formula"><b>Running balance</b> = Brought forward + Σ(Amount − Paid on the day) − Σ(Payment rows)<br><b>Carried forward</b> = Brought forward + Earned this period − Paid this period</div>
         <p>When you move to the next week or month, its <b>Brought forward</b> row is exactly the previous period's <b>Carried forward</b>. Totals don't depend on row order; only the running-balance column follows the order rows are shown in.</p>
@@ -2258,6 +2488,11 @@
     if (row.type === 'leave') items.push(['to-day', 'Change to a work day'], ['dup', 'Duplicate to next work day'], ['-']);
     if (row.type === 'payment') items.push(['edit-payment', 'Edit payment…'], ['share-payment', 'Share receipt with employee…'], ['-']);
     if (row.type === 'note') items.push(['tone:grey', 'Style: grey'], ['tone:green', 'Style: green (paid)'], ['tone:amber', 'Style: amber (pending)'], ['tone:blue', 'Style: blue (info)'], ['-']);
+    const emp = activeEmp(); const G = groupInfo(emp, ledgerOf(emp)); const gid = G.of(row);
+    if (gid) items.push(['group-edit', 'Edit pay group…']);
+    if (gid && row.type === 'payment') items.push(['group-out', 'Take out of the pay group']);
+    if (!gid && row.type !== 'note') items.push(['group-new', 'Wrap in a pay group…']);
+    if (row.type !== 'note' || gid) items.push(['-']);
     items.push(['up', 'Move up'], ['down', 'Move down'], ['-'], ['delete', 'Delete row', 'danger']);
     const p = popAt(btn, items.map(i => i[0] === '-' ? '<hr>' : `<button data-m="${i[0]}" class="${i[2] || ''}">${esc(i[1])}</button>`).join(''), 'menu');
     p.addEventListener('click', e => {
@@ -2273,6 +2508,9 @@
       else if (a === 'leave-range') leaveModal(row.date);
       else if (a === 'to-day') convertToDay(row);
       else if (a.startsWith('tone:')) mutate(() => { row.tone = a.slice(5); });
+      else if (a === 'group-edit') groupModal(G.byId(gid));
+      else if (a === 'group-out') takeOutOfGroup(G.byId(gid), row);
+      else if (a === 'group-new') groupModal(null, row.type === 'payment' ? { from: row.from, to: row.to, payment: row.id } : { from: row.date });
       else if (a === 'up') moveRow(row.id, -1);
       else if (a === 'down') moveRow(row.id, 1);
       else if (a === 'delete') deleteRow(row.id);
@@ -2300,9 +2538,11 @@
         note = r.end ? 'This becomes the brought-forward amount for the period starting ' + fmtDate(C.addDays(r.end, 1)) + '.' : 'Current all-time balance.';
       }
     } else if (tr) {
-      const x = V.rows.find(v => v.row.id === tr.dataset.id); if (!x) return;
+      // the running balance follows the table's order, where pay groups gather their payments
+      const seq = ui.filter === 'all' ? tableLayout(emp, V, L).entries.filter(e => e.kind === 'row').map(e => e.x) : V.rows;
+      const x = seq.find(v => v.row.id === tr.dataset.id); if (!x) return;
       const { row, c } = x;
-      const idx = V.rows.indexOf(x); const prevRun = idx > 0 ? V.rows[idx - 1].running : V.carryIn;
+      const idx = seq.indexOf(x); const prevRun = idx > 0 ? seq[idx - 1].running : V.carryIn;
       issues = (c.issues || []);
       if (kind === 'hours') {
         title = 'Working hours';
@@ -2796,6 +3036,7 @@
     'add-day': () => ensureEmp() && addDay(),
     'add-week': () => ensureEmp() && addWeek(),
     'add-payment': () => ensureEmp() && paymentModal(null),
+    'add-group': () => ensureEmp() && groupModal(null),
     'add-note': () => ensureEmp() && addNote(),
     'sort': () => ensureEmp() && sortByDate(),
     'verify': () => ensureEmp() && verifyModal(),
@@ -2852,6 +3093,12 @@
       }
       if (act === 'share-payment') { const tr = a.closest('tr[data-id]'); return shareModal({ paymentId: tr.dataset.id }); }
       if (act === 'edit-payment') { const tr = a.closest('tr[data-id]'); const { row } = findRow(tr.dataset.id); return paymentModal(row); }
+      if (act === 'group-toggle' || act === 'group-edit') {
+        const emp = activeEmp(); const tr = a.closest('tr[data-gid]');
+        const g = emp && tr && groupsOf(emp.id).find(x => x.id === tr.dataset.gid); if (!g) return;
+        if (act === 'group-edit') return groupModal(g);
+        g.collapsed = !g.collapsed; saveUI(); return render(); // folding isn't undoable, like other view choices
+      }
       if (act === 'filter') { ui.filter = a.dataset.v; return render(); }
       if (act === 'toggle-subtotals') { data.ui.subtotals = a.checked; saveUI(); return render(); }
       if (commands[act]) commands[act]();

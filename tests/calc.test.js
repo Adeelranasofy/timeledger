@@ -206,3 +206,68 @@ test('leave and holiday rows count days off but never change money', () => {
   assert.equal(clash.checks.find(c => /leave or holiday/.test(c.title)).level, 'warn');
   assert.ok(C.verify(rows, emp, { decimals: 2 }).checks.every(c => c.level !== 'fail'));
 });
+
+test('pay group: 08–17 Sep earned 694, paid 300 + 300 = 600, 94 pending', () => {
+  const e = { hourlyRate: 10, openingBalance: 0 };
+  const dates = ['2026-09-08', '2026-09-09', '2026-09-10', '2026-09-11', '2026-09-12', '2026-09-15', '2026-09-16'];
+  const rows = dates.map(d => day(d, '08:00', '17:00', '0'))
+    .concat([day('2026-09-17', '09:00', '15:24', '0'), day('2026-09-22', '09:00', '17:00', '0')])
+    .concat([pay('2026-09-30', 300, { from: '2026-09-08', to: '2026-09-17' }), pay('2026-10-02', 300, { from: '2026-09-08', to: '2026-09-17' })]);
+  const g = { id: 'g1', from: '2026-09-08', to: '2026-09-17', add: [], remove: [] };
+  const L = C.computeLedger(rows, e, { decimals: 2 });
+  const s = C.groupSummary(L, g, C.assignPayments(rows, [g]));
+  assert.equal(s.days, 8);
+  assert.equal(s.minutes, 7 * 540 + 384);
+  assert.equal(s.earned, 694);
+  assert.deepEqual(s.payments.map(p => [p.date, p.amount]), [['2026-09-30', 300], ['2026-10-02', 300]]);
+  assert.equal(s.paid, 600);
+  assert.equal(s.pending, 94);
+  assert.ok(!s.rowIds.includes('d2026-09-2209:00'), 'a day after the group is not in it');
+  // grouping is a report only: the ledger balance is the same with or without it
+  assert.equal(L.totals.balance, 694 + 80 - 600);
+  const v = C.verify(rows, e, { decimals: 2, groups: [g] });
+  assert.equal(v.checks.find(c => /Pay group/.test(c.title)).level, 'pass');
+});
+
+test('pay group payments: auto by covered dates, hand-picked in or out, one group each', () => {
+  const rows = [
+    day('2026-09-01', '09:00', '17:00', '0'), day('2026-09-08', '09:00', '17:00', '0'),
+    pay('2026-09-05', 1000, { from: '2026-09-01', to: '2026-09-03' }),  // inside A
+    pay('2026-09-06', 500),                                              // no dates: only by hand
+    pay('2026-09-12', 700, { from: '2026-09-01', to: '2026-09-10' }),    // spans both: fits neither
+    pay('2026-09-13', 900, { from: '2026-09-08', to: '2026-09-09' }),    // inside B
+  ];
+  const A = { id: 'A', from: '2026-09-01', to: '2026-09-07', add: ['p2026-09-06500'], remove: [] };
+  const B = { id: 'B', from: '2026-09-08', to: '2026-09-14', add: ['p2026-09-06500'], remove: ['p2026-09-13900'] };
+  const m = C.assignPayments(rows, [B, A]);
+  assert.equal(m.get('p2026-09-051000'), 'A');
+  assert.equal(m.get('p2026-09-06500'), 'A', 'hand-picked by two groups: the earlier group keeps it');
+  assert.equal(m.has('p2026-09-12700'), false);
+  assert.equal(m.has('p2026-09-13900'), false, 'removed by hand');
+  const L = C.computeLedger(rows, emp, { decimals: 2 });
+  const a = C.groupSummary(L, A, m);
+  assert.equal(a.paid, 1500);
+  assert.equal(a.pending, 4000 - 1500);
+  const b = C.groupSummary(L, B, m);
+  assert.equal(b.payments.length, 0);
+  assert.equal(b.pending, 4000);
+});
+
+test('pay group counts paid-on-the-day amounts and overpayment', () => {
+  const rows = [day('2026-09-01', '09:00', '17:00', '0', { paid: true }), day('2026-09-02', '09:00', '13:00', '0', { paidAmount: '500' }),
+    pay('2026-09-03', 2000, { from: '2026-09-01', to: '2026-09-02' })];
+  const g = { id: 'g', from: '2026-09-01', to: '2026-09-02', add: [], remove: [] };
+  const L = C.computeLedger(rows, emp, { decimals: 2 });
+  const s = C.groupSummary(L, g, C.assignPayments(rows, [g]));
+  assert.equal(s.earned, 6000);
+  assert.equal(s.paidOnDay, 4500);
+  assert.equal(s.paid, 6500);
+  assert.equal(s.pending, -500);
+});
+
+test('verify flags overlapping pay groups', () => {
+  const rows = [day('2026-09-01', '09:00', '17:00', '0')];
+  const groups = [{ id: 'a', from: '2026-09-01', to: '2026-09-07' }, { id: 'b', from: '2026-09-07', to: '2026-09-10' }];
+  const v = C.verify(rows, emp, { decimals: 2, groups });
+  assert.equal(v.checks.find(c => /Pay group/.test(c.title)).level, 'fail');
+});

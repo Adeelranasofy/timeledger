@@ -348,6 +348,62 @@
     return { rows: view, totals: t, carryIn, carryOut };
   }
 
+  // ---------- pay groups ----------
+
+  /**
+   * Which pay group each payment row belongs to. A group is { id, from, to, add[], remove[] }.
+   * A payment joins a group automatically when the dates it covers lie inside the group's dates;
+   * `add` pulls a payment in by hand and `remove` leaves one out. A payment belongs to one group
+   * at most: hand-picked first, then the earliest group that fits.
+   * @returns Map paymentId -> groupId
+   */
+  function assignPayments(rows, groups) {
+    const out = new Map();
+    const list = (groups || []).slice().sort((a, b) => (a.from < b.from ? -1 : a.from > b.from ? 1 : 0));
+    const pays = rows.filter(r => r.type === 'payment');
+    const ids = new Set(pays.map(p => p.id));
+    for (const g of list) for (const id of g.add || []) if (ids.has(id) && !out.has(id)) out.set(id, g.id);
+    for (const p of pays) {
+      if (out.has(p.id) || !p.from || !p.to) continue;
+      const g = list.find(g => p.from >= g.from && p.to <= g.to && !(g.remove || []).includes(p.id));
+      if (g) out.set(p.id, g.id);
+    }
+    return out;
+  }
+
+  /**
+   * Totals for one pay group over its whole date range (not just the visible period).
+   *   Paid    = Paid on the day (days in the group) + Σ(payments in the group)
+   *   Pending = Earned − Paid       (negative = paid more than earned)
+   * Grouping never changes the running balance; it only reports on a stretch of days.
+   */
+  function groupSummary(ledger, group, assigned) {
+    const d = ledger.decimals;
+    const s = { id: group.id, from: group.from, to: group.to, days: 0, minutes: 0, earned: 0, paidOnDay: 0, payments: [], paymentsTotal: 0, paid: 0, pending: 0, leave: 0, holidays: 0, rowIds: [] };
+    for (const { row, c } of ledger.rows) {
+      if (row.type === 'payment') {
+        if (!assigned || assigned.get(row.id) !== group.id) continue;
+        s.payments.push({ id: row.id, date: row.date, amount: c.amount, method: row.method || '' });
+        s.paymentsTotal = roundMoney(s.paymentsTotal + c.amount, d);
+      } else {
+        if (!row.date || row.date < group.from || row.date > group.to) continue;
+        if (row.type === 'day') {
+          if (c.minutes > 0) s.days++;
+          s.minutes += c.minutes;
+          s.earned = roundMoney(s.earned + c.amount, d);
+          s.paidOnDay = roundMoney(s.paidOnDay + c.directPaid, d);
+        } else if (row.type === 'leave') {
+          if (row.kind === 'holiday') s.holidays++; else s.leave++;
+        }
+      }
+      s.rowIds.push(row.id);
+    }
+    s.payments.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+    s.paid = roundMoney(s.paidOnDay + s.paymentsTotal, d);
+    s.pending = roundMoney(s.earned - s.paid, d);
+    return s;
+  }
+
   // ---------- self-review ----------
 
   /**
@@ -433,6 +489,31 @@
     add(L.totals.credit > 0 ? 'warn' : 'pass', 'Payments match worked days',
       L.totals.credit > 0 ? 'Unmatched payment credit of ' + L.totals.credit.toFixed(decimals) + ' (advance, or payment range with no unpaid days)' : 'All payments are matched to worked days');
 
+    // 9. Pay groups: no overlaps, and pending = earned − paid recomputed straight from the rows
+    const groups = (opts && opts.groups) || [];
+    if (groups.length) {
+      const sorted = groups.slice().sort((a, b) => (a.from < b.from ? -1 : a.from > b.from ? 1 : 0));
+      const overlaps = [];
+      for (let i = 1; i < sorted.length; i++) if (sorted[i].from <= sorted[i - 1].to) overlaps.push(sorted[i - 1].from + '…' + sorted[i - 1].to + ' and ' + sorted[i].from + '…' + sorted[i].to);
+      const assigned = assignPayments(rows, groups);
+      let bad = 0;
+      for (const g of groups) {
+        const s = groupSummary(L, g, assigned);
+        let earned = 0, paid = 0;
+        for (const r of rows) {
+          if (r.type === 'day' && r.date >= g.from && r.date <= g.to) {
+            const rate = r.rate != null && r.rate !== '' ? num(r.rate) : num(employee && employee.hourlyRate);
+            const a = amountFor(dayHours(r).minutes, rate, decimals);
+            earned += a; paid += roundMoney(directPaid(r, a), decimals);
+          } else if (r.type === 'payment' && assigned.get(r.id) === g.id) paid += roundMoney(num(r.amount), decimals);
+        }
+        if (Math.abs(roundMoney(earned - paid, decimals) - s.pending) > 1e-6) bad++;
+      }
+      const lvl = bad || overlaps.length ? 'fail' : 'pass';
+      add(lvl, 'Pay group totals: Pending = Earned − Paid',
+        overlaps.length ? 'Pay groups overlap: ' + overlaps.join('; ') : bad ? bad + ' pay group(s) disagree with an independent recalculation' : groups.length + ' pay group(s) recalculated independently and match');
+    }
+
     return { checks: res, ledger: L };
   }
 
@@ -448,6 +529,6 @@
     parseTime, split12, formatClock, parseDuration, toTimeStr, formatHM, formatDecimalHours,
     roundMoney, amountFor, num,
     parseISO, toISO, addDays, weekStartOf, monthStartOf, monthEndOf, periodRange, shiftPeriod, inRange,
-    dayHours, directPaid, computeLedger, periodView, verify, paymentComment,
+    dayHours, directPaid, computeLedger, periodView, assignPayments, groupSummary, verify, paymentComment,
   };
 });
