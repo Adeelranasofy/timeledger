@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>TimeLedger</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+        </div>
+        <div>
+          <div class="brand-name">TimeLedger</div>
+          <div class="brand-sub">Attendance &amp; pay</div>
+        </div>
+      </div>
+
+      <button class="ws-btn" id="ws-btn" data-action="ws-menu" aria-haspopup="menu">
+        <span class="ws-mark" id="ws-mark"></span>
+        <span class="ws-txt"><span class="ws-lbl">Workspace</span><span class="ws-name" id="ws-name"></span></span>
+        <svg class="ws-chev" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 10l4 4 4-4"/></svg>
+      </button>
+
+      <nav class="nav">
+        <button class="nav-item" data-action="go-overview" id="nav-overview">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/></svg>
+          HR overview
+        </button>
+      </nav>
+
+      <div class="nav-section">
+        <span>Employees</span>
+        <button class="icon-btn sm" data-action="new-employee" title="Add employee">
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+        </button>
+      </div>
+      <input class="emp-search" id="emp-search" type="search" placeholder="Search employees" autocomplete="off">
+      <div class="emp-list" id="emp-list"></div>
+
+      <div class="sidebar-foot">
+        <button class="nav-item" data-action="settings">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+          Settings
+        </button>
+        <button class="nav-item" data-action="help">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3M12 17h.01"/></svg>
+          How calculations work
+        </button>
+        <div class="save-status" id="save-status"><span class="dot"></span><span class="txt">Saved</span></div>
+        <button class="backup-status warn" id="backup-status" data-action="backup-center" hidden><span class="dot"></span><span class="txt">Backup</span></button>
+      </div>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <div class="topbar-title" id="topbar-title"></div>
+        <div class="period" id="period-controls">
+          <div class="seg" role="tablist" aria-label="Period">
+            <button data-period="week">Week</button>
+            <button data-period="fortnight">2 weeks</button>
+            <button data-period="month">Month</button>
+            <button data-period="all">All</button>
+            <button data-period="custom">Custom</button>
+          </div>
+          <div class="period-nav">
+            <button class="icon-btn" data-action="prev" title="Previous period (Ctrl+[)">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
+            </button>
+            <div class="period-label" id="period-label"></div>
+            <button class="icon-btn" data-action="next" title="Next period (Ctrl+])">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg>
+            </button>
+            <button class="btn ghost sm" data-action="today">Today</button>
+          </div>
+          <div class="custom-range" id="custom-range" hidden>
+            <input type="date" id="custom-start" aria-label="From">
+            <span>to</span>
+            <input type="date" id="custom-end" aria-label="To">
+          </div>
+        </div>
+      </header>
+      <section class="view" id="view"></section>
+    </main>
+  </div>
+
+  <div id="modal-root"></div>
+  <div id="pop-root"></div>
+  <div id="toast-root" aria-live="polite"></div>
+
+  <script src="calc.js"></script>
+  <script src="importer.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

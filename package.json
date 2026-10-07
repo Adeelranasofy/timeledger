@@ -1,0 +1,31 @@
+{
+  "name": "timeledger",
+  "productName": "TimeLedger",
+  "version": "1.0.0",
+  "description": "Attendance, hours and payment tracking for employees and HR.",
+  "main": "src/main/main.js",
+  "author": "Sofy",
+  "license": "UNLICENSED",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "test": "node --test tests/calc.test.js tests/importer.test.js tests/backup.test.js",
+    "dist": "electron-builder",
+    "dist:win": "electron-builder --win",
+    "dist:mac": "electron-builder --mac",
+    "dist:linux": "electron-builder --linux"
+  },
+  "devDependencies": {
+    "electron": "^44.0.0",
+    "electron-builder": "^26.0.0"
+  },
+  "build": {
+    "appId": "ai.sofy.timeledger",
+    "productName": "TimeLedger",
+    "files": ["src/**/*", "package.json"],
+    "win": { "target": ["nsis", "portable"] },
+    "mac": { "target": ["dmg"], "category": "public.app-category.business" },
+    "linux": { "target": ["AppImage", "deb"], "category": "Office" },
+    "nsis": { "oneClick": false, "allowToChangeInstallationDirectory": true }
+  }
+}

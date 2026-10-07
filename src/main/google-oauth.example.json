@@ -1,0 +1,7 @@
+{
+  "_readme": "Copy this file to google-oauth.json (same folder) with your own OAuth client, or set TIMELEDGER_GOOGLE_CLIENT_ID / TIMELEDGER_GOOGLE_CLIENT_SECRET. See README → Google Drive backup.",
+  "installed": {
+    "client_id": "YOUR-CLIENT-ID.apps.googleusercontent.com",
+    "client_secret": "YOUR-CLIENT-SECRET"
+  }
+}

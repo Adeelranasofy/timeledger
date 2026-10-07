@@ -1,0 +1,35 @@
+'use strict';
+const { contextBridge, ipcRenderer } = require('electron');
+
+contextBridge.exposeInMainWorld('api', {
+  load: () => ipcRenderer.invoke('data:load'),
+  save: json => ipcRenderer.invoke('data:save', json),
+  saveFile: opts => ipcRenderer.invoke('file:save', opts),
+  openFile: opts => ipcRenderer.invoke('file:open', opts),
+  savePDF: opts => ipcRenderer.invoke('file:pdf', opts),
+  reveal: p => ipcRenderer.invoke('app:reveal', p),
+  openExternal: url => ipcRenderer.invoke('app:open-external', url),
+  copyText: text => ipcRenderer.invoke('app:copy', text),
+  backup: {
+    status: () => ipcRenderer.invoke('backup:status'),
+    set: p => ipcRenderer.invoke('backup:set', p),
+    setPassphrase: p => ipcRenderer.invoke('backup:passphrase', p),
+    suggestFolders: () => ipcRenderer.invoke('backup:suggest-folders'),
+    chooseFolder: () => ipcRenderer.invoke('backup:choose-folder'),
+    useFolder: p => ipcRenderer.invoke('backup:use-folder', p),
+    removeFolder: () => ipcRenderer.invoke('backup:remove-folder'),
+    openFolder: which => ipcRenderer.invoke('backup:open-folder', which),
+    connectGoogle: () => ipcRenderer.invoke('backup:google-connect'),
+    disconnectGoogle: () => ipcRenderer.invoke('backup:google-disconnect'),
+    run: () => ipcRenderer.invoke('backup:run'),
+    list: () => ipcRenderer.invoke('backup:list'),
+    fetch: (source, id) => ipcRenderer.invoke('backup:fetch', source, id),
+    decode: (token, passphrase) => ipcRenderer.invoke('backup:decode', token, passphrase),
+    safety: () => ipcRenderer.invoke('backup:safety'),
+    exportFile: () => ipcRenderer.invoke('backup:export-file'),
+    importFile: () => ipcRenderer.invoke('backup:import-file'),
+    onStatus: cb => ipcRenderer.on('backup:status', (_e, s) => cb(s)),
+  },
+  onMenu: cb => ipcRenderer.on('menu', (_e, cmd) => cb(cmd)),
+  platform: process.platform,
+});
