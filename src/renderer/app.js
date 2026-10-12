@@ -86,7 +86,7 @@
   const DEFAULT_SETTINGS = {
     currencyCode: 'PKR', currencySymbol: 'Rs', decimals: 0, symbolAfter: false, numberLocale: 'en-US',
     weekStart: 1, workDays: [1, 2, 3, 4, 5], defaultIn: '09:00', defaultOut: '17:00', defaultBreak: 60,
-    hoursFormat: 'hm', theme: 'system', showRate: true, timeFormat: '24',
+    hoursDisplay: 'both', theme: 'system', showRate: true, timeFormat: '24',
   };
   const ROW_TYPES = ['day', 'payment', 'note', 'leave'];
   /*
@@ -109,6 +109,7 @@
     const b = blankData();
     d = d && typeof d === 'object' ? d : b;
     d.settings = Object.assign({}, DEFAULT_SETTINGS, d.settings || {});
+    delete d.settings.hoursFormat; // replaced by hoursDisplay ('both' | 'hm' | 'decimal')
     d.employees = Array.isArray(d.employees) ? d.employees : [];
     d.rows = d.rows && typeof d.rows === 'object' ? d.rows : {};
     d.ui = Object.assign({}, b.ui, d.ui || {});
@@ -247,10 +248,8 @@
   }
   const payComment = (amt, from, to) => from && to ? 'Paid ' + money(amt) + ' for ' + fmtRange(from, to) : C.paymentComment(money(amt), from, to, d => fmtDate(d));
   const plainNum = v => (v === '' || v == null) ? '' : String(C.roundMoney(C.num(v), dec()));
-  function hours(min, withDecimal) {
-    if (S().hoursFormat === 'decimal') return C.formatDecimalHours(min) + ' h';
-    return C.formatHM(min) + (withDecimal ? `<span class="sm">${C.formatDecimalHours(min)}h</span>` : '');
-  }
+  /** Worked hours in the chosen display: "7.53 (7h 32m)", "7h 32m" or "7.53" */
+  const hours = min => C.formatHours(min, S().hoursDisplay);
   const breakStr = v => { const m = C.parseDuration(v); return m == null ? String(v) : m === 0 ? '' : C.formatHM(m); };
   const is12h = () => S().timeFormat === '12';
   /** Stored "HH:MM" (24-hour) -> display string in the chosen check-in/out format */
@@ -444,7 +443,7 @@
     const off = [t.leave ? t.leave + ' leave' : '', t.holidays ? t.holidays + ' holiday' + (t.holidays === 1 ? '' : 's') : ''].filter(Boolean).join(' · ');
     const kpis = `<div class="kpis">
       <div class="kpi"><div class="lbl">Brought forward</div><div class="val num">${money(V.carryIn)}</div><div class="sub">${r.start ? 'Before ' + fmtDate(r.start) : 'Opening balance'}</div></div>
-      <div class="kpi"><div class="lbl">Hours worked</div><div class="val num">${C.formatHM(t.minutes)}</div><div class="sub" title="${esc(off)}">${t.days} day${t.days === 1 ? '' : 's'} · ${off || C.formatDecimalHours(t.minutes) + ' h'}</div></div>
+      <div class="kpi"><div class="lbl">Hours worked</div><div class="val num">${hours(t.minutes)}</div><div class="sub" title="${esc(off)}">${t.days} day${t.days === 1 ? '' : 's'}${off ? ' · ' + off : ''}</div></div>
       <div class="kpi"><div class="lbl">Earned this period</div><div class="val num">${money(t.earned)}</div><div class="sub">at ${money(emp.hourlyRate)}/h default</div></div>
       <div class="kpi ${t.paid > 0 ? 'good' : ''}"><div class="lbl">Paid this period</div><div class="val num">${money(t.paid)}</div><div class="sub">${t.earned > 0 ? paidPct + '% of earned' : '—'}</div></div>
       <div class="kpi balance"><div class="lbl">Balance to carry forward</div><div class="val num">${money(V.carryOut)}</div><div class="sub">${V.carryOut > 0 ? 'Owed to employee' : V.carryOut < 0 ? 'Paid in advance' : 'All settled'}</div></div>
@@ -483,7 +482,7 @@
       <span class="spacer"></span>
       <span class="mini-kpis num" title="Shown in large and full-screen view, where the summary cards are hidden">
         ${shift ? `<span class="mk live"><i></i>${shift.breakStart ? 'On break' : 'Checked in ' + esc(fmtTime(shift.in))}</span>` : ''}
-        <span class="mk">Hours <b>${C.formatHM(t.minutes)}</b></span><span class="mk">Earned <b>${money(t.earned)}</b></span>
+        <span class="mk">Hours <b>${hours(t.minutes)}</b></span><span class="mk">Earned <b>${money(t.earned)}</b></span>
         <span class="mk">Paid <b>${money(t.paid)}</b></span><span class="mk bal">Balance <b>${money(V.carryOut)}</b></span>
       </span>
     </div>`;
@@ -598,7 +597,7 @@
     if (shift.breakStart) onBreak = Math.max(0, Math.round((Date.now() - shift.breakStart) / 60000));
     const worked = Math.max(0, nowMin - tin - (C.parseDuration(shift.breakMin) || 0) - onBreak);
     return `<div class="clock ${shift.breakStart ? 'break' : 'in'}" id="clock"><div class="clock-state"><span class="clock-dot"></span>
-        <span class="clock-time">${C.formatHM(worked)}</span>
+        <span class="clock-time">${hours(worked)}</span>
         <div><div class="clock-title">${shift.breakStart ? 'On break · ' + C.formatHM(onBreak) : 'Checked in at ' + esc(fmtTime(shift.in))}</div>
         <div class="clock-sub">${shift.date !== todayISO() ? 'Shift started yesterday · ' : ''}Break so far ${C.formatHM((C.parseDuration(shift.breakMin) || 0) + onBreak)} · ≈ ${money(C.amountFor(worked, shift.rate != null && shift.rate !== '' ? C.num(shift.rate) : emp.hourlyRate, dec()))} earned</div></div></div>
       <div class="clock-actions">
@@ -858,7 +857,7 @@
       ${timeCell(row, 'in')}
       ${timeCell(row, 'out')}
       <td><input class="cell-in w-break num ${brBad ? 'invalid' : ''}" data-f="breakMin" value="${esc(breakStr(row.breakMin))}" placeholder="0:00" title="Minutes (30), H:MM (0:30) or 1h 15m"></td>
-      <td class="r"><span class="calc num ${c.minutes ? '' : 'zero'}" data-explain="hours" title="${C.formatDecimalHours(c.minutes)} h">${c.status === 'open' ? '<span style="color:var(--blue)" title="Shift in progress — waiting for check-out">open</span>' : hours(c.minutes)}</span>${issueIcon(c.issues)}</td>
+      <td class="r"><span class="calc num ${c.minutes ? '' : 'zero'}" data-explain="hours" title="${C.formatHours(c.minutes, 'both')}">${c.status === 'open' ? '<span style="color:var(--blue)" title="Shift in progress — waiting for check-out">open</span>' : hours(c.minutes)}</span>${issueIcon(c.issues)}</td>
       <td class="r" ${showRate ? '' : 'hidden'}><input class="cell-in r w-rate num" data-f="rate" value="${esc(rateVal)}" placeholder="${esc(plainNum(emp.hourlyRate))}" inputmode="decimal" title="Leave blank to use the employee's rate"></td>
       <td class="r cell-amt"><span class="calc num ${c.amount ? '' : 'zero'}" data-explain="amount">${money(c.amount)}</span></td>
       <td class="r">${c.allocated > 0 && c.directPaid === 0
@@ -894,7 +893,7 @@
     const pct = s.earned > 0 ? Math.min(100, Math.round(s.paid / s.earned * 100)) : 0;
     const off = s.leave + s.holidays;
     return `<td class="r">${s.days}</td><td class="r" title="${s.leave} leave · ${s.holidays} holiday${s.holidays === 1 ? '' : 's'}">${off || '<span style="color:var(--faint)">—</span>'}</td>
-      <td class="r">${C.formatHM(s.minutes)}</td><td class="r">${money(s.earned)}</td><td class="r">${money(s.paid)}</td>
+      <td class="r">${hours(s.minutes)}</td><td class="r">${money(s.earned)}</td><td class="r">${money(s.paid)}</td>
       <td><span class="bar"><i style="width:${pct}%"></i></span> <span style="color:var(--muted);font-size:12px">${s.earned > 0 ? pct + '%' : '—'}</span></td>
       <td class="r">${money(s.pbal)}</td><td class="r" style="font-weight:650">${money(s.bal)}</td>`;
   }
@@ -956,7 +955,7 @@
       <div class="print-head"><h1>HR overview — ${esc(all ? 'All workspaces' : ws.name)} — ${esc($('#period-label').textContent)}</h1><div>printed ${fmtDate(todayISO())}</div></div>
       <div class="kpis">
         <div class="kpi"><div class="lbl">Employees</div><div class="val num">${people.length}</div><div class="sub">${liveCount ? liveCount + ' checked in now' : 'None checked in now'}</div></div>
-        <div class="kpi"><div class="lbl">Hours this period</div><div class="val num">${C.formatHM(T.minutes)}</div><div class="sub">${T.days} shift-days${T.leave + T.holidays ? ' · ' + (T.leave + T.holidays) + ' days off' : ''}</div></div>
+        <div class="kpi"><div class="lbl">Hours this period</div><div class="val num">${hours(T.minutes)}</div><div class="sub">${T.days} shift-days${T.leave + T.holidays ? ' · ' + (T.leave + T.holidays) + ' days off' : ''}</div></div>
         <div class="kpi"><div class="lbl">Amount this period</div><div class="val num">${money(T.earned)}</div><div class="sub">${all ? 'All workspaces' : esc(ws.name)}</div></div>
         <div class="kpi good"><div class="lbl">Paid this period</div><div class="val num">${money(T.paid)}</div><div class="sub">${T.earned > 0 ? Math.round(T.paid / T.earned * 100) + '% of amount' : '—'}</div></div>
         <div class="kpi balance"><div class="lbl">Total outstanding</div><div class="val num">${money(T.bal)}</div><div class="sub">All-time balance owed</div></div>
@@ -972,7 +971,7 @@
           <table class="simple"><thead><tr>
             <th>Employee</th><th class="${all ? '' : 'r'}">${all ? 'Workspaces' : 'Rate / h'}</th><th class="r">Days</th><th class="r" title="Leave + holiday days">Leave</th><th class="r">Hours</th><th class="r">Amount</th><th class="r">Paid</th><th>Paid %</th><th class="r" title="Amount − Paid in this period">Outstanding<br>this period</th><th class="r" title="All-time balance still owed">Total<br>outstanding</th></tr></thead>
             <tbody>${body}</tbody>
-            <tfoot><tr><td>Total</td><td></td><td class="r">${T.days}</td><td class="r">${T.leave + T.holidays || ''}</td><td class="r">${C.formatHM(T.minutes)}</td><td class="r">${money(T.earned)}</td><td class="r">${money(T.paid)}</td><td></td><td class="r">${money(T.pbal)}</td><td class="r">${money(T.bal)}</td></tr></tfoot>
+            <tfoot><tr><td>Total</td><td></td><td class="r">${T.days}</td><td class="r">${T.leave + T.holidays || ''}</td><td class="r">${hours(T.minutes)}</td><td class="r">${money(T.earned)}</td><td class="r">${money(T.paid)}</td><td></td><td class="r">${money(T.pbal)}</td><td class="r">${money(T.bal)}</td></tr></tfoot>
           </table>
         </div>
         <div class="card">
@@ -1256,7 +1255,7 @@
         shift.out = nowHM();
       });
       const x = ledgerOf(emp).byId[shift.id];
-      toast(`Checked out at ${fmtTime(shift.out)} · ${C.formatHM(x.c.minutes)} worked · ${money(x.c.amount)}`);
+      toast(`Checked out at ${fmtTime(shift.out)} · ${hours(x.c.minutes)} worked · ${money(x.c.amount)}`);
     } else {
       const t = todayISO();
       const blank = rows.find(r => r.type === 'day' && r.date === t && !r.in);
@@ -1547,7 +1546,7 @@
           const dates = use.map(x => x.row.date).sort();
           let html = `<div class="section-t">Preview</div><div class="callout"><div class="kv">
             <span class="k">Rows found</span><span class="v">${body.length}${res.stats.skipped ? ` <span style="color:var(--muted);font-weight:400">· ${res.stats.skipped} total/summary row${res.stats.skipped === 1 ? '' : 's'} ignored</span>` : ''}</span>
-            <span class="k">Work days</span><span class="v">${days.length} · ${C.formatHM(mins)} h${days.length ? ' · ≈ ' + money(amt) : ''}</span>
+            <span class="k">Work days</span><span class="v">${days.length} · ${hours(mins)}${days.length ? ' · ≈ ' + money(amt) : ''}</span>
             ${pays.length ? `<span class="k">Payments</span><span class="v">${pays.length} · ${money(pays.reduce((a, p) => a + p.amount, 0))}</span>` : ''}
             ${offs ? `<span class="k">Leave / holidays</span><span class="v">${offs}</span>` : ''}
             <span class="k tot">Will be imported</span><span class="v tot">${use.length} row${use.length === 1 ? '' : 's'}${dates.length ? ' · ' + esc(dates[0] === dates[dates.length - 1] ? fmtDate(dates[0]) : fmtRange(dates[0], dates[dates.length - 1])) : ''}</span></div></div>`;
@@ -1558,7 +1557,7 @@
             const show = use.slice(0, 8);
             html += `<div class="imp-table"><table class="simple"><thead><tr><th>Line</th><th>Date</th><th>Type</th><th>Check-in</th><th>Check-out</th><th>Break</th><th class="r">Hours</th><th class="r">Rate</th><th>Paid</th><th>Note</th></tr></thead><tbody>${show.map(x => {
               const r = x.row;
-              if (r.type === 'day') { const h = C.dayHours(r); return `<tr><td>${x.line}</td><td>${fmtDate(r.date)}</td><td>Day</td><td>${esc(fmtTime(r.in))}</td><td>${esc(fmtTime(r.out))}</td><td>${C.formatHM(h.breakMin)}</td><td class="r">${C.formatHM(h.minutes)}</td><td class="r">${r.rate != null ? esc(plainNum(r.rate)) : '<span style="color:var(--faint)">' + esc(plainNum(rate)) + '</span>'}</td><td>${r.paid ? 'Paid' : r.paidAmount ? money(r.paidAmount) : '—'}</td><td class="imp-note">${esc(r.note)}</td></tr>`; }
+              if (r.type === 'day') { const h = C.dayHours(r); return `<tr><td>${x.line}</td><td>${fmtDate(r.date)}</td><td>Day</td><td>${esc(fmtTime(r.in))}</td><td>${esc(fmtTime(r.out))}</td><td>${C.formatHM(h.breakMin)}</td><td class="r">${hours(h.minutes)}</td><td class="r">${r.rate != null ? esc(plainNum(r.rate)) : '<span style="color:var(--faint)">' + esc(plainNum(rate)) + '</span>'}</td><td>${r.paid ? 'Paid' : r.paidAmount ? money(r.paidAmount) : '—'}</td><td class="imp-note">${esc(r.note)}</td></tr>`; }
               if (r.type === 'payment') return `<tr><td>${x.line}</td><td>${fmtDate(r.date)}</td><td>Payment</td><td colspan="5"></td><td>${money(r.amount)}</td><td class="imp-note">${esc(r.comment)}</td></tr>`;
               if (r.type === 'leave') return `<tr><td>${x.line}</td><td>${fmtDate(r.date)}</td><td>${r.kind === 'holiday' ? 'Holiday' : 'Leave'}</td><td colspan="6"></td><td class="imp-note">${esc(r.note)}</td></tr>`;
               return `<tr><td>${x.line}</td><td>${fmtDate(r.date)}</td><td>Separator</td><td colspan="6"></td><td class="imp-note">${esc(r.text)}</td></tr>`;
@@ -1657,14 +1656,14 @@
     out.push(`${o.rangeLabel}:`);
     const off = t.leave + t.holidays;
     out.push(`• Days worked: ${t.days}${off ? ' (+ ' + [t.leave ? t.leave + ' leave' : '', t.holidays ? t.holidays + ' holiday' + (t.holidays === 1 ? '' : 's') : ''].filter(Boolean).join(', ') + ')' : ''}`);
-    out.push(`• Hours: ${C.formatHM(t.minutes)}`);
+    out.push(`• Hours: ${hours(t.minutes)}`);
     out.push(`• Earned: ${money(t.earned)}`);
     out.push(`• Paid for these days: ${money(paidFor)}`);
     if (dueFor > 0) out.push(`• Still due for these days: ${money(dueFor)}`);
     if (o.days) {
       const lines = V.rows.filter(x => x.row.type !== 'note').map(({ row, c }) => {
         const d = DOW[dowOf(row.date)] + ' ' + fmtDate(row.date, false);
-        if (row.type === 'day') return `${d} · ${c.status === 'ok' ? fmtTime(row.in) + '–' + fmtTime(row.out) + ' · ' + C.formatHM(c.minutes) + ' h · ' + money(c.amount) : 'incomplete'}${c.state === 'paid' || c.state === 'covered' ? ' · paid' : c.state === 'partial' ? ' · part paid' : ''}`;
+        if (row.type === 'day') return `${d} · ${c.status === 'ok' ? fmtTime(row.in) + '–' + fmtTime(row.out) + ' · ' + hours(c.minutes) + ' · ' + money(c.amount) : 'incomplete'}${c.state === 'paid' || c.state === 'covered' ? ' · paid' : c.state === 'partial' ? ' · part paid' : ''}`;
         if (row.type === 'leave') return `${d} · ${row.kind === 'holiday' ? 'Holiday' : 'Leave'}${row.note ? ' (' + row.note + ')' : ''}`;
         return `${d} · Payment ${money(c.amount)}`;
       });
@@ -2236,7 +2235,7 @@
           const parts = (s.paidOnDay > 0 ? [money(s.paidOnDay) + ' on the day'] : []).concat(s.payments.map(p => money(p.amount)));
           $('#grp-preview', el).innerHTML = `<div class="callout"><div class="kv">
             <span class="k">Days worked</span><span class="v">${s.days}${s.leave + s.holidays ? ' <span style="color:var(--muted);font-weight:400">· ' + (s.leave + s.holidays) + ' off</span>' : ''}</span>
-            <span class="k">Total hours</span><span class="v">${C.formatHM(s.minutes)} <span style="color:var(--muted);font-weight:400">(${C.formatDecimalHours(s.minutes)} h)</span></span>
+            <span class="k">Total hours</span><span class="v">${hours(s.minutes)}</span>
             <span class="k">Total amount</span><span class="v">${money(s.earned)}</span>
             <span class="k">Total paid</span><span class="v">${parts.length > 1 ? esc(parts.join(' + ')) + ' = ' : ''}${money(s.paid)}</span>
             <span class="k tot">${s.pending < 0 ? 'Paid in advance' : 'Pending balance'}</span><span class="v tot">${money(Math.abs(s.pending))}</span></div></div>
@@ -2315,7 +2314,8 @@
         <div class="row2">
           <div class="field"><label>Check-in / check-out time format</label><select name="timeFormat"><option value="24" ${s.timeFormat !== '12' ? 'selected' : ''}>24-hour (18:30)</option><option value="12" ${s.timeFormat === '12' ? 'selected' : ''}>12-hour with AM / PM (06:30 PM)</option></select>
             <div class="hint">Either way, type <span class="kbd">0600</span> for 06:00 or <span class="kbd">0600PM</span> for 06:00 PM. In 12-hour mode each time has an AM/PM dropdown.</div></div>
-          <div class="field"><label>Hours shown as</label><select name="hoursFormat"><option value="hm" ${s.hoursFormat === 'hm' ? 'selected' : ''}>8:30 (hours:minutes)</option><option value="decimal" ${s.hoursFormat === 'decimal' ? 'selected' : ''}>8.50 h (decimal)</option></select></div>
+          <div class="field"><label>Hours shown as</label><select name="hoursDisplay">${[['both', 'Both: 7.53 (7h 32m)'], ['hm', 'Hours and minutes only: 7h 32m'], ['decimal', 'Calculated only: 7.53']].map(([v, l]) => `<option value="${v}" ${(s.hoursDisplay || 'both') === v ? 'selected' : ''}>${l}</option>`).join('')}</select>
+            <div class="hint">Applies to working hours, week and period totals, the HR overview and shared messages. The calculated figure (hours as a decimal) is what pay is worked out from.</div></div>
         </div>
         <div class="row2">
           <div class="field"><label>Theme</label><select name="theme"><option value="system" ${s.theme === 'system' ? 'selected' : ''}>Match system</option><option value="light" ${s.theme === 'light' ? 'selected' : ''}>Light</option><option value="dark" ${s.theme === 'dark' ? 'selected' : ''}>Dark</option></select></div>
@@ -2373,7 +2373,7 @@
               currencyCode: code, currencySymbol: F('currencySymbol').value.trim() || code, decimals: +F('decimals').value,
               numberLocale: F('numberLocale').value, symbolAfter: F('symbolAfter').value === '1',
               defaultIn: C.toTimeStr(din), defaultOut: C.toTimeStr(dout), defaultBreak: dbr, workDays: wd, weekStart: +F('weekStart').value,
-              hoursFormat: F('hoursFormat').value, theme: F('theme').value, showRate: F('showRate').value === '1', timeFormat: F('timeFormat').value,
+              hoursDisplay: F('hoursDisplay').value, theme: F('theme').value, showRate: F('showRate').value === '1', timeFormat: F('timeFormat').value,
             });
             nfCache = {};
           });
@@ -2414,7 +2414,7 @@
         <div class="section-t">Summary</div>
         <div class="callout"><div class="kv">
           <span class="k">Opening balance</span><span class="v">${money(res.ledger.opening)}</span>
-          <span class="k">Total hours</span><span class="v">${C.formatHM(res.ledger.totals.minutes)} (${C.formatDecimalHours(res.ledger.totals.minutes)} h)</span>
+          <span class="k">Total hours</span><span class="v">${hours(res.ledger.totals.minutes)}</span>
           <span class="k">Total earned</span><span class="v">${money(res.ledger.totals.earned)}</span>
           <span class="k">Paid on days</span><span class="v">−${money(res.ledger.totals.paidDirect)}</span>
           <span class="k">Payment rows</span><span class="v">−${money(res.ledger.totals.payments)}</span>
@@ -2547,8 +2547,8 @@
       if (kind === 'hours') {
         title = 'Working hours';
         if (c.status === 'ok') {
-          steps = [`Check-out ${esc(fmtTime(row.out))} − Check-in ${esc(fmtTime(row.in))} = ${C.formatHM(c.spanMin)}${c.overnight ? ' (overnight)' : ''}`, `− Rest break ${C.formatHM(c.breakMin)}`, `= ${res(C.formatHM(c.minutes))} &nbsp;(${C.formatDecimalHours(c.minutes)} h)`];
-        } else steps = [c.status === 'open' ? 'Waiting for check-out' : 'No times entered', `= ${res('0:00')}`];
+          steps = [`Check-out ${esc(fmtTime(row.out))} − Check-in ${esc(fmtTime(row.in))} = ${C.formatHM(c.spanMin)}${c.overnight ? ' (overnight)' : ''}`, `− Rest break ${C.formatHM(c.breakMin)}`, `= ${res(hours(c.minutes))}`];
+        } else steps = [c.status === 'open' ? 'Waiting for check-out' : 'No times entered', `= ${res(hours(0))}`];
       } else if (kind === 'amount') {
         title = 'Amount';
         steps = [`${C.formatDecimalHours(c.minutes)} h × ${money(c.rate)}/h`, `= ${res(money(c.amount))}`];

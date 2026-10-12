@@ -17,6 +17,17 @@ test('parseTime', () => {
   assert.equal(C.parseTime(''), null);
 });
 
+test('formatHours shows decimal, h/m or both', () => {
+  assert.equal(C.formatHours(452, 'both'), '7.53 (7h 32m)');
+  assert.equal(C.formatHours(452, 'hm'), '7h 32m');
+  assert.equal(C.formatHours(452, 'decimal'), '7.53');
+  assert.equal(C.formatHours(452), '7.53 (7h 32m)');
+  assert.equal(C.formatHours(65, 'both'), '1.08 (1h 05m)');
+  assert.equal(C.formatHours(0, 'both'), '0.00 (0h 00m)');
+  assert.equal(C.formatHours(-90, 'both'), '−1.50 (−1h 30m)');
+  assert.equal(C.formatHours(null, 'both'), '—');
+});
+
 test('parseDuration accepts friendly formats', () => {
   assert.equal(C.parseDuration('45'), 45);
   assert.equal(C.parseDuration('0:45'), 45);

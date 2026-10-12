@@ -102,6 +102,25 @@
     return (min / 60).toFixed(2);
   }
 
+  /** 452 -> "7h 32m" */
+  function formatHoursMinutes(min) {
+    if (min == null || !isFinite(min)) return '—';
+    const neg = min < 0; min = Math.abs(Math.round(min));
+    return (neg ? '−' : '') + Math.floor(min / 60) + 'h ' + String(min % 60).padStart(2, '0') + 'm';
+  }
+
+  /**
+   * Worked hours for display. mode 'both' -> "7.53 (7h 32m)", 'hm' -> "7h 32m", 'decimal' -> "7.53".
+   * Unknown modes fall back to 'both'.
+   */
+  function formatHours(min, mode) {
+    if (min == null || !isFinite(min)) return '—';
+    if (mode === 'hm') return formatHoursMinutes(min);
+    const dec = (min < 0 ? '−' : '') + formatDecimalHours(Math.abs(min));
+    if (mode === 'decimal') return dec;
+    return dec + ' (' + formatHoursMinutes(min) + ')';
+  }
+
   // ---------- money ----------
 
   function roundMoney(v, decimals) {
@@ -526,7 +545,7 @@
   }
 
   return {
-    parseTime, split12, formatClock, parseDuration, toTimeStr, formatHM, formatDecimalHours,
+    parseTime, split12, formatClock, parseDuration, toTimeStr, formatHM, formatDecimalHours, formatHoursMinutes, formatHours,
     roundMoney, amountFor, num,
     parseISO, toISO, addDays, weekStartOf, monthStartOf, monthEndOf, periodRange, shiftPeriod, inRange,
     dayHours, directPaid, computeLedger, periodView, assignPayments, groupSummary, verify, paymentComment,
